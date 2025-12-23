@@ -3,11 +3,11 @@
 using namespace llvm;
 using namespace std;
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     auto moduleNameVec =
-            OptionBase::parseOptions(argc, argv, "Whole Program Points-to Analysis",
-                                     "[options] <input-bitcode...>");
+        OptionBase::parseOptions(argc, argv, "Whole Program Points-to Analysis",
+                                 "[options] <input-bitcode...>");
 
     SVF::LLVMModuleSet::buildSVFModule(moduleNameVec);
 
@@ -18,133 +18,158 @@ int main(int argc, char** argv)
 
     Andersen andersen(consg);
     auto cg = pag->getCallGraph();
+
+    // TODO: 完成下面两个方法的实现
     andersen.runPointerAnalysis();
     andersen.updateCallGraph(cg);
 
     cg->dump();
     SVF::LLVMModuleSet::releaseLLVMModuleSet();
-	return 0;
+    return 0;
 }
-
 
 void Andersen::runPointerAnalysis()
 {
-    // 使用所有约束节点初始化工作队列
-    WorkList<SVF::ConstraintNode*> worklist;
-    
-    // 初始化点到集合：每个指针先包含自身
-    for (auto it = consg->begin(); it != consg->end(); ++it) {
-        SVF::ConstraintNode* node = it->second;
-        pts[node->getId()].insert(node->getId());
-        worklist.push(node);
+    // TODO: 完成此方法。点到集和工作列表在 A5Header.h 中定义。
+    //  约束图的实现由 SVF 库提供。
+    WorkList<unsigned> workList;
+
+    for (auto it = consg->begin(); it != consg->end(); it++)
+    {
+        auto p = it->first;
+        SVF::ConstraintNode *node = it->second;
+
+        for (auto edge : node->getAddrInEdges())
+        {
+            SVF::AddrCGEdge *addrEdge = SVF::SVFUtil::dyn_cast<SVF::AddrCGEdge>(edge);
+            auto srcId = addrEdge->getSrcID();
+            auto dstId = addrEdge->getDstID();
+
+            pts[dstId].insert(srcId);
+            workList.push(dstId);
+        }
     }
-    
-    // 处理工作队列直到为空
-    while (!worklist.empty()) {
-        SVF::ConstraintNode* node = worklist.pop();
-        
-        // 处理该节点的所有出边
-        for (auto edge : node->getOutEdges()) {
-            SVF::ConstraintNode* dstNode = edge->getDstNode();
-            
-            // 处理不同类型的约束边
-            switch (edge->getEdgeKind()) {
-                case SVF::ConstraintEdge::Copy: {
-                    // Copy 约束：dst = src
-                    // 合并点到集合
-                    bool changed = false;
-                    for (auto pt : pts[node->getId()]) {
-                        if (pts[dstNode->getId()].insert(pt).second) {
-                            changed = true;
-                        }
+
+    while (!workList.empty())
+    {
+        auto p = workList.pop();
+        SVF::ConstraintNode *pNode = consg->getConstraintNode(p);
+
+        // 对于 pts(p) 中的每个 o
+        for (auto o : pts[p])
+        {
+            // 对于每个 q --Store--> p
+            for (auto edge : pNode->getStoreInEdges())
+            {
+                SVF::StoreCGEdge *storeEdge = SVF::SVFUtil::dyn_cast<SVF::StoreCGEdge>(edge);
+                auto q = storeEdge->getSrcID();
+
+                // q --Copy--> o 是否存在？
+                bool exist = false;
+                SVF::ConstraintNode *qNode = consg->getConstraintNode(q);
+                for (auto copyEdge : qNode->getCopyOutEdges())
+                {
+                    if (copyEdge->getDstID() == o)
+                    {
+                        exist = true;
+                        break;
                     }
-                    if (changed) {
-                        worklist.push(dstNode);
-                    }
-                    break;
                 }
-                case SVF::ConstraintEdge::Addr: {
-                    // 取地址约束：dst = &src
-                    // 将 src 加入 dst 的点到集合
-                    if (pts[dstNode->getId()].insert(node->getId()).second) {
-                        worklist.push(dstNode);
-                    }
-                    break;
+
+                if (!exist)
+                {
+                    consg->addCopyCGEdge(q, o);
+                    workList.push(q);
                 }
-                case SVF::ConstraintEdge::Load: {
-                    // Load 约束：dst = *src
-                    // 对 src 的每个指向对象 o，将 o 的点到集合并入 dst 的点到集合
-                    bool changed = false;
-                    for (auto srcObj : pts[node->getId()]) {
-                        auto srcObjNode = consg->getConstraintNode(srcObj);
-                        if (srcObjNode) {
-                            for (auto pt : pts[srcObj]) {
-                                if (pts[dstNode->getId()].insert(pt).second) {
-                                    changed = true;
-                                }
-                            }
-                        }
+            }
+
+            // 对于每个 p --Load--> r
+            for (auto edge : pNode->getLoadOutEdges())
+            {
+                SVF::LoadCGEdge *loadEdge = SVF::SVFUtil::dyn_cast<SVF::LoadCGEdge>(edge);
+                auto r = loadEdge->getDstID();
+
+                // o --Copy--> r 是否存在？
+                bool exist = false;
+                SVF::ConstraintNode *rNode = consg->getConstraintNode(r);
+                for (auto copyEdge : rNode->getCopyInEdges())
+                {
+                    if (copyEdge->getSrcID() == o)
+                    {
+                        exist = true;
+                        break;
                     }
-                    if (changed) {
-                        worklist.push(dstNode);
-                    }
-                    break;
                 }
-                case SVF::ConstraintEdge::Store: {
-                    // Store 约束：*dst = src
-                    // 对 dst 的每个指向对象 o，将 src 的点到集合并入 o 的点到集合
-                    bool changed = false;
-                    for (auto dstObj : pts[node->getId()]) {
-                        auto dstObjNode = consg->getConstraintNode(dstObj);
-                        if (dstObjNode) {
-                            for (auto pt : pts[dstNode->getId()]) {
-                                if (pts[dstObj].insert(pt).second) {
-                                    changed = true;
-                                }
-                            }
-                            if (changed) {
-                                worklist.push(dstObjNode);
-                            }
-                        }
-                    }
-                    break;
+
+                if (!exist)
+                {
+                    consg->addCopyCGEdge(o, r);
+                    workList.push(o);
                 }
-                default:
-                    // 暂时跳过其它约束类型
-                    break;
+            }
+        }
+
+        // 对于每个 p --Copy--> x
+        for (auto edge : pNode->getCopyOutEdges())
+        {
+            SVF::CopyCGEdge *copyEdge = SVF::SVFUtil::dyn_cast<SVF::CopyCGEdge>(edge);
+            auto x = copyEdge->getDstID();
+
+            auto oldSize = pts[x].size();
+            pts[x].insert(pts[p].begin(), pts[p].end());
+
+            // pts(x) 是否改变？
+            if (pts[x].size() != oldSize)
+            {
+                workList.push(x);
+            }
+        }
+
+        // 对于每个 p --Gep.fld--> x
+        for (auto edge : pNode->getGepOutEdges())
+        {
+            SVF::GepCGEdge *gepEdge = SVF::SVFUtil::dyn_cast<SVF::GepCGEdge>(edge);
+            auto x = gepEdge->getDstID();
+
+            auto oldSize = pts[x].size();
+            for (auto o : pts[p])
+            {
+                auto fieldObj = consg->getGepObjVar(o, gepEdge);
+                pts[x].insert(fieldObj);
+            }
+
+            // pts(x) 是否改变？
+            if (pts[x].size() != oldSize)
+            {
+                workList.push(x);
             }
         }
     }
 }
 
-
-void Andersen::updateCallGraph(SVF::CallGraph* cg)
+void Andersen::updateCallGraph(SVF::CallGraph *cg)
 {
-    // 通过 ConstraintGraph 遍历所有间接调用点
-    // （ConstraintGraph 内部持有 PAG 并暴露 getIndirectCallsites()）
-    for (auto &cs_pair : consg->getIndirectCallsites()) {
-        const SVF::CallICFGNode* cs = cs_pair.first;
-        SVF::NodeID funPtrNode = cs_pair.second;
+    // TODO: 完成此方法。
+    //  调用图的实现由 SVF 库提供。
+    const auto &indirectCallsites = consg->getIndirectCallsites();
 
-        // 查找函数指针节点的点到集合
-        auto ptsIt = pts.find(funPtrNode);
-        if (ptsIt == pts.end()) continue;
+    for (const auto &callsitePair : indirectCallsites)
+    {
+        auto callNode = callsitePair.first;
+        auto funPtrId = callsitePair.second;
 
-        // 获取调用者函数（在某些上下文可能为 nullptr）
-        const SVF::FunObjVar* callerFun = nullptr;
-        if (cs) callerFun = cs->getCaller();
+        auto callerFun = callNode->getCaller();
 
-        // 对点到集合中的每个函数对象，添加间接调用边。
-        // 使用 ConstraintGraph 的辅助方法检查/获取函数对象，避免直接访问 PAG。
-        for (auto funObjId : ptsIt->second) {
-            if (!consg->isFunction(funObjId))
-                continue;
-            const SVF::FunObjVar* calleeFun = consg->getFunction(funObjId);
-            if (!calleeFun) continue;
+        const auto &pointsToSet = pts[funPtrId];
 
-            // 确保被调用函数存在于调用图中，然后添加间接调用边
-            cg->addCallGraphNode(calleeFun);
-            cg->addIndirectCallGraphEdge(cs, callerFun, calleeFun);
+        for (auto calleeId : pointsToSet)
+        {
+            if (consg->isFunction(calleeId))
+            {
+                auto calleeFun = consg->getFunction(calleeId);
+
+                cg->addIndirectCallGraphEdge(callNode, callerFun, calleeFun);
+            }
         }
     }
 }

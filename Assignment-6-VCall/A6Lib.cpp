@@ -1,8 +1,3 @@
-/**
- * A5Lib.cpp
- * @author kisslune 
- */
-
 #include "A6Header.h"
 
 void Andersen::dumpResult()
@@ -15,7 +10,7 @@ void Andersen::dumpResult()
         return;
     }
 
-    // Write S-edges
+    // 输出点到集内容（S 边）
     for (auto &pointerIt : pts)
     {
         outFile << pointerIt.first << " points to: {";

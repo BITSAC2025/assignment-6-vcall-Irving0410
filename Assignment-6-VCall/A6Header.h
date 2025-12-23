@@ -1,35 +1,28 @@
-/**
- * A6Header.h
- * 作者: kisslune
- */
-
 #ifndef ANSWERS_A5HEADER_H
 #define ANSWERS_A5HEADER_H
 
 #include "SVF-LLVM/SVFIRBuilder.h"
 
-/// 点到集合类型
+/// 点到集类型定义
 using PTS = std::map<unsigned, std::set<unsigned>>;
 
-/**
- * FIFO 工作队列
- */
+//FIFO 工作列表
 template<class T>
 class WorkList
 {
 public:
-    /// 判断工作队列是否为空
+    /// 检查工作列表是否为空。
     inline bool empty() const
     { return data_list.empty(); }
 
-    /// 清空工作队列
+    /// 清空工作列表
     inline void clear()
     {
         data_list.clear();
         data_set.clear();
     }
 
-    /// 将元素推入队列尾部
+    /// 将数据推入工作列表末尾。
     inline bool push(const T &data)
     {
         if (this->data_set.find(data) == data_set.end())
@@ -42,7 +35,7 @@ public:
             return false;
     }
 
-    /// 从队列头部弹出元素
+    /// 从工作列表头部弹出数据。
     inline T pop()
     {
         assert(!this->empty() && "work list is empty");
@@ -54,7 +47,7 @@ public:
 
 protected:
     std::unordered_set<T> data_set;       ///< 用于避免重复元素
-    std::deque<T> data_list;     ///< 双端队列，用于从头尾访问元素
+    std::deque<T> data_list;     ///< 可从两端访问元素
 };
 
 
@@ -70,7 +63,7 @@ public:
     void runPointerAnalysis();
     /// 更新调用图
     void updateCallGraph(SVF::CallGraph* cg);
-    /// 将结果写入文件
+    /// 将结果输出到文件
     void dumpResult();
 
 protected:
